@@ -484,11 +484,12 @@ void DisassemblyDialog::onBreakpointClicked(wxCommandEvent& evt)
 }
 
 void DisassemblyDialog::onToggleGDB(wxCommandEvent& evt) {
-	if (gdbInterface->IsEnabled()) {
-		gdbInterface->Disable();
+	if (gdbInterface->IsEnabled() || gdbInterface->IsListening()) {
+		if (gdbInterface->IsListening()) gdbInterface->StopListening();
+		else gdbInterface->Disable();
 		gdbButton->SetLabel("Enable GDB");
 	} else {
-		gdbInterface->Enable(6169); // todo: configurable port
+		gdbInterface->EnableInSeparateThread();
 		gdbButton->SetLabel("Disable GDB");
 	}
 }

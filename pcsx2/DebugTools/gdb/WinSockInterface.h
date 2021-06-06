@@ -15,7 +15,11 @@ namespace GDB {
             virtual Result IO_Write(const void* src, size_t size);
             virtual Result IO_Poll();
 
+            bool IsListening() const;
+            void StopListening();
+
         protected:
+            bool m_listening;
             unsigned int m_socket;
             unsigned int m_conn;
             void* m_server;

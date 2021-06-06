@@ -660,6 +660,7 @@
     <ClInclude Include="..\..\DebugTools\BiosDebugData.h" />
     <ClInclude Include="..\..\DebugTools\ExpressionParser.h" />
     <ClInclude Include="..\..\DebugTools\gdb\cpp_gdb.h" />
+    <ClInclude Include="..\..\DebugTools\gdb\gdb.h" />
     <ClInclude Include="..\..\DebugTools\gdb\libgdbstub.h" />
     <ClInclude Include="..\..\DebugTools\gdb\PCSX2Interface.h" />
     <ClInclude Include="..\..\DebugTools\gdb\WinSockInterface.h" />

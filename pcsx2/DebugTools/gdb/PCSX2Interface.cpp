@@ -6,19 +6,30 @@
 #include "AppCoreThread.h"
 #include "App.h"
 
+extern "C" {
+	#include "gdb.h"
+}
+
 
 // todo:
 // - Disable GDB server when DisassemblyDialog closes
 // - Figure out how to implement the calling of the GDB run loop
 // - etc
 
+#define _ctx ((GDBSTUBCTX)m_ctx)
 
 namespace GDB {
+	void GDBThread(PCSX2Interface* gdb) {
+		gdb->Enable(6169); // todo: Make port configurable
+		if (gdb->IsEnabled()) gdb->Run();
+	}
+
 	PCSX2Interface::PCSX2Interface(DisassemblyDialog* dis) : WinSockInterface(Architecture::MIPS) {
 		m_disDialog = dis;
 
 		GDB::RegisterType alltypes[] = {
 			RegisterType::GeneralPurpose,
+			RegisterType::FloatingPoint,
 			RegisterType::CodePointer,
 			RegisterType::ProgramCounter,
 			RegisterType::StackPointer,
@@ -27,7 +38,7 @@ namespace GDB {
 
 		int ccount = 2;
 		int categories[] = { EECAT_GPR, EECAT_FPR }; //{ EECAT_GPR, EECAT_CP0, EECAT_FPR, EECAT_FCR, EECAT_VU0F, EECAT_VU0I, EECAT_GSPRIV, EECAT_COUNT };
-		u8  ctypes    [] = { 0        , 0         }; //{ 0        , 0        , 0        , 0        , 0         , 0         , 0           , 0           };
+		u8  ctypes    [] = { 0        , 1         }; //{ 0        , 0        , 0        , 0        , 0         , 0         , 0           , 0           };
 
 		struct sp { int cat; int num; GDB::RegisterType tp; };
 		int scount = 3;
@@ -57,6 +68,11 @@ namespace GDB {
 	}
 
 	PCSX2Interface::~PCSX2Interface() {
+	}
+
+	void PCSX2Interface::EnableInSeparateThread() {
+		if (m_gdbThread.joinable()) m_gdbThread.join();
+		m_gdbThread = std::thread(GDBThread, this);
 	}
 
 	int PCSX2Interface::DebugPrint(const char* msg) {

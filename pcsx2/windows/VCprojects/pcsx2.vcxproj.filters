@@ -2199,6 +2199,9 @@
     <ClInclude Include="..\..\DebugTools\gdb\PCSX2Interface.h">
       <Filter>System\Ps2\Debug\gdb</Filter>
     </ClInclude>
+    <ClInclude Include="..\..\DebugTools\gdb\gdb.h">
+      <Filter>System\Ps2\Debug\gdb</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="..\wxResources.rc">

@@ -6,7 +6,7 @@
 #include "cpp_gdb.h"
 
 extern "C" {
-    #include "libgdbstub.h"
+    #include "gdb.h"
 }
 
 #define _ctx ((GDBSTUBCTX)m_ctx)
@@ -24,6 +24,7 @@ namespace GDB {
     GDBSTUBREGTYPE RegTp(RegisterType tp) {
         switch (tp) {
             case RegisterType::GeneralPurpose: return GDBSTUBREGTYPE_GP;
+            case RegisterType::FloatingPoint: return GDBSTUBREGTYPE_FPR;
             case RegisterType::ProgramCounter: return GDBSTUBREGTYPE_PC;
             case RegisterType::StackPointer: return GDBSTUBREGTYPE_STACK_PTR;
             case RegisterType::CodePointer: return GDBSTUBREGTYPE_CODE_PTR;
@@ -209,14 +210,24 @@ namespace GDB {
         Interface* i = (Interface*)pvUser;
         return cmdStatus(i->InvalidCommand(pszCmd));
     }
-
+    
     void gdbStubIfPrePkt(GDBSTUBCTX hGdbStubCtx, const char* pkt, uint16_t sz, void* pvUser) {
         Interface* i = (Interface*)pvUser;
         static char buf[512] = { 0 };
         for (int i = 0;i < sz;i++) buf[i] = pkt[i];
         buf[sz] = 0;
         i->PacketReceived(buf);
-    }
+	}
+
+	void gdbStubIfLock(void* pvUser) {
+		Interface* i = (Interface*)pvUser;
+		i->Lock();
+	}
+
+	void gdbStubIfUnlock(void* pvUser) {
+		Interface* i = (Interface*)pvUser;
+		i->Unlock();
+	}
 
     
     // IO functions
@@ -291,6 +302,8 @@ namespace GDB {
         _if->pfnTgtTpClear = gdbStubIfTgtTpClear;
         _if->pfnMonCmd = gdbStubIfMonCmd;
         _if->pfnPktCb = gdbStubIfPrePkt;
+        _if->pfnLock = gdbStubIfLock;
+        _if->pfnUnlock = gdbStubIfUnlock;
 
         _io->pfnPeek = gdbStubIoIfPeek;
         _io->pfnRead = gdbStubIoIfRead;
@@ -349,6 +362,14 @@ namespace GDB {
 
     void Interface::Disable() {
         if (!m_enabled) return;
+        m_mutex.lock();
+        _ctx->doShutdown = true;
+        m_mutex.unlock();
+
+        while (!_ctx->didShutdown) {
+            
+        }
+
         GDBStubCtxDestroy(_ctx);
         IO_Close();
         m_enabled = false;
@@ -356,6 +377,14 @@ namespace GDB {
 
     bool Interface::IsEnabled() const {
         return m_enabled;
+	}
+	
+    void Interface::Lock() {
+        m_mutex.lock();
+    }
+
+	void Interface::Unlock() {
+        m_mutex.unlock();
     }
 
     void Interface::DefineCustomCommand(const char* cmd, Interface::CommandCallback cb, const char* desc) {

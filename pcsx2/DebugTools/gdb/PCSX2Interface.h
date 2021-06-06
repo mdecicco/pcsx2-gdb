@@ -1,6 +1,7 @@
 #pragma once
 #include "WinSockInterface.h"
 #include <unordered_map>
+#include <thread>
 
 class DisassemblyDialog;
 
@@ -9,6 +10,8 @@ namespace GDB {
         public:
             PCSX2Interface(DisassemblyDialog* dis);
 			~PCSX2Interface();
+
+			void EnableInSeparateThread();
 
 			virtual int DebugPrint(const char* msg);
 			virtual void PacketReceived(const char* pkt);
@@ -28,5 +31,6 @@ namespace GDB {
 		private:
 			DisassemblyDialog* m_disDialog;
 			std::unordered_map<RegisterID, std::pair<int, int>> m_regInfo; // RegisterID -> (category, number)
+			std::thread m_gdbThread;
     };
 }

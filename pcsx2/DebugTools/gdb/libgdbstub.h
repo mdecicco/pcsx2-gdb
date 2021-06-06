@@ -149,6 +149,8 @@ typedef enum GDBSTUBREGTYPE
     GDBSTUBREGTYPE_CODE_PTR,
     /** Status register. */
     GDBSTUBREGTYPE_STATUS,
+    /** Floating point register */
+    GDBSTUBREGTYPE_FPR,
     /** 32bit hack. */
     GDBSTUBREGTYPE_32BIT_HACK = 0x7fffffff
 } GDBSTUBREGTYPE;
@@ -400,6 +402,12 @@ typedef struct GDBSTUBIF
 
     // Called before any packet is processed
     void (*pfnPktCb) (GDBSTUBCTX hGdbStubCtx, const char* pktBuf, uint16_t pktLen, void* pvUser);
+
+    // lock context
+    void (*pfnLock) (void* pvUser);
+
+    // unlock context
+    void (*pfnUnlock) (void* pvUser);
 
 } GDBSTUBIF;
 /** Pointer to a interface callback table. */

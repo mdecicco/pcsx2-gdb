@@ -1,4 +1,5 @@
 #pragma once
+#include <mutex>
 
 namespace GDB {
     enum class ProcessStatus {
@@ -42,6 +43,7 @@ namespace GDB {
 
     enum class RegisterType {
         GeneralPurpose,
+        FloatingPoint,
         ProgramCounter,
         StackPointer,
         CodePointer,
@@ -59,7 +61,9 @@ namespace GDB {
             // Start/Stop GDB server
             void Enable(unsigned short port);
             void Disable();
-            bool IsEnabled() const;
+			bool IsEnabled() const;
+			void Lock();
+			void Unlock();
 
             // Custom GDB command helpers
             void DefineCustomCommand(const char* cmd, CommandCallback cb, const char* desc = nullptr);
@@ -102,7 +106,6 @@ namespace GDB {
             virtual Result InvalidCommand(const char* cmd);
             virtual void PacketReceived(const char* pkt);
 
-
         protected:
             Architecture m_arch;
             int m_socket;
@@ -117,6 +120,7 @@ namespace GDB {
             int m_customCommandCount;
             int m_customCommandCapacity;
             bool m_enabled;
+            std::mutex m_mutex;
     };
 };
 

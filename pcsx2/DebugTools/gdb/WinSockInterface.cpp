@@ -7,7 +7,7 @@
 #define _srv ((sockaddr_in*)m_server)
 #define _cli ((sockaddr_in*)m_client)
 namespace GDB {
-    WinSockInterface::WinSockInterface(Architecture arch) : Interface(arch), m_server(nullptr), m_socket(0), m_conn(0) {
+    WinSockInterface::WinSockInterface(Architecture arch) : Interface(arch), m_server(nullptr), m_socket(0), m_conn(0), m_listening(false) {
     }
 
     WinSockInterface::~WinSockInterface() {
@@ -17,7 +17,7 @@ namespace GDB {
 
     bool WinSockInterface::IO_Open(unsigned short port) {
         if (m_server) {
-            DebugPrint("Socket is already open.");
+			DebugPrint("Socket is already open.");
             return false;
         }
 
@@ -25,16 +25,18 @@ namespace GDB {
         if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0) {
             DebugPrintf("Failed to startup WSA <%d>.", WSAGetLastError());
             m_conn = m_socket = 0;
-            m_server = m_client = nullptr;
+			m_server = m_client = nullptr;
 			return false;
         }
 
+		Lock();
         m_socket = socket(AF_INET, SOCK_STREAM, 0);
         if(m_socket == INVALID_SOCKET) {
             DebugPrintf("Failed to open socket <%d>.", WSAGetLastError());
             WSACleanup();
             m_conn = m_socket = 0;
-            m_server = m_client = nullptr;
+			m_server = m_client = nullptr;
+			Unlock();
 			return false;
         }
 
@@ -46,7 +48,8 @@ namespace GDB {
             closesocket(m_socket);
             WSACleanup();
             m_conn = m_socket = 0;
-            m_server = m_client = nullptr;
+			m_server = m_client = nullptr;
+			Unlock();
 			return false;
         }
 
@@ -57,7 +60,8 @@ namespace GDB {
             WSACleanup();
             free(m_server);
             m_conn = m_socket = 0;
-            m_server = m_client = nullptr;
+			m_server = m_client = nullptr;
+			Unlock();
 			return false;
         }
 
@@ -72,7 +76,8 @@ namespace GDB {
             free(m_server);
             free(m_client);
             m_conn = m_socket = 0;
-            m_server = m_client = nullptr;
+			m_server = m_client = nullptr;
+			Unlock();
 			return false;
         }
 
@@ -83,24 +88,33 @@ namespace GDB {
             free(m_server);
             free(m_client);
             m_conn = m_socket = 0;
-            m_server = m_client = nullptr;
+			m_server = m_client = nullptr;
+			Unlock();
 			return false;
         }
 
         DebugPrintf("Waiting for connection to winsock GDB server on port %d...", port);
 
         int c = sizeof(sockaddr_in);
+        m_listening = true;
+        Unlock();
+        
         m_conn = accept(m_socket, (sockaddr*)_cli, &c);
+
+        Lock();
+        m_listening = false;
         if (m_conn == INVALID_SOCKET) {
             DebugPrintf("Failed to accept connection to winsock GDB server <%d>.", WSAGetLastError());
-            closesocket(m_socket);
+            if (m_socket) closesocket(m_socket);
             WSACleanup();
             free(m_server);
             free(m_client);
             m_conn = m_socket = 0;
-            m_server = m_client = nullptr;
+			m_server = m_client = nullptr;
+			Unlock();
+            return false;
         }
-
+        Unlock();
         return true;
     }
 
@@ -114,9 +128,7 @@ namespace GDB {
         WSACleanup();
         free(m_server);
 
-        if (m_client) {
-            free(m_client);
-        }
+        if (m_client) free(m_client);
 
         m_conn = m_socket = 0;
         m_server = m_client = nullptr;
@@ -175,6 +187,17 @@ namespace GDB {
         }
 
         return Result::Success;
+	}
+
+	bool WinSockInterface::IsListening() const {
+        return m_listening;
+    }
+
+	void WinSockInterface::StopListening() {
+        Lock();
+        closesocket(m_socket);
+        m_socket = 0;
+        Unlock();
     }
 };
 /*

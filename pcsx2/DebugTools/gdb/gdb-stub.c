@@ -25,211 +25,9 @@
  */
 
 #include <stdarg.h>
+#include <stdio.h>
 
-#include "libgdbstub.h"
-
-
-/** Character indicating the start of a packet. */
-#define GDBSTUB_PKT_START       '$'
-/** Character indicating the end of a packet (excluding the checksum). */
-#define GDBSTUB_PKT_END         '#'
-/** The escape character. */
-#define GDBSTUB_PKT_ESCAPE      '{'
-/** The out-of-band interrupt character. */
-#define GDBSTUB_OOB_INTERRUPT   0x03
-
-/** Returns the number of elements from a static array. */
-#define ELEMENTS(a_Array) (sizeof(a_Array)/sizeof(a_Array[0]))
-/** Returns the minimum of two given values. */
-#define MIN(a_Val1, a_Val2) ((a_Val1) < (a_Val2) ? (a_Val1) : (a_Val2))
-/** Sets the specified bit. */
-#define BIT(a_Bit) (1 << (a_Bit))
-/** Return the absolute value of a given number .*/
-#define ABS(a) ((a) < 0 ? -(a) : (a))
-
-/** Our own bool type. */
-typedef uint8_t bool;
-/** true value. */
-#define true 1
-/** false value. */
-#define false 0
-
-
-/** Pointer to an internal PSP proxy context. */
-typedef struct GDBSTUBCTXINT *PGDBSTUBCTXINT;
-
-/**
- * GDB stub receive state.
- */
-typedef enum GDBSTUBRECVSTATE
-{
-    /** Invalid state. */
-    GDBSTUBRECVSTATE_INVALID = 0,
-    /** Waiting for the start character. */
-    GDBSTUBRECVSTATE_PACKET_WAIT_FOR_START,
-    /** Reiceiving the packet body up until the END character. */
-    GDBSTUBRECVSTATE_PACKET_RECEIVE_BODY,
-    /** Receiving the checksum. */
-    GDBSTUBRECVSTATE_PACKET_RECEIVE_CHECKSUM,
-    /** Blow up the enum to 32bits for easier alignment of members in structs. */
-    GDBSTUBRECVSTATE_32BIT_HACK = 0x7fffffff
-} GDBSTUBRECVSTATE;
-
-
-/**
- * Command output context.
- */
-typedef struct GDBSTUBOUTCTX
-{
-    /** The helper structure, MUST come first!. */
-    GDBSTUBCMDOUTHLP            Hlp;
-    /** Pointer to the owning GDB stub context. */
-    PGDBSTUBCTXINT              pGdbStubCtx;
-    /** Current offset into the scratch buffer. */
-    uint32_t                    offScratch;
-    /** Scratch buffer. */
-    uint8_t                     abScratch[512];
-} GDBSTUBOUTCTX;
-/** Pointer to a command output context. */
-typedef GDBSTUBOUTCTX *PGDBSTUBOUTCTX;
-/** Pointer to a const command output context. */
-typedef const GDBSTUBOUTCTX *PCGDBSTUBOUTCTX;
-
-
-/**
- * Internal PSP proxy context.
- */
-typedef struct GDBSTUBCTXINT
-{
-    /** The I/O interface callback table. */
-    PCGDBSTUBIOIF               pIoIf;
-    /** The interface callback table. */
-    PCGDBSTUBIF                 pIf;
-    /** Opaque user data passed in the callbacks. */
-    void                        *pvUser;
-    /** The current state when receiving a new packet. */
-    GDBSTUBRECVSTATE            enmState;
-    /** Maximum number of bytes the packet buffer can hold. */
-    size_t                      cbPktBufMax;
-    /** Current offset into the packet buffer. */
-    uint32_t                    offPktBuf;
-    /** The size of the packet (minus the start, end characters and the checksum). */
-    uint32_t                    cbPkt;
-    /** Pointer to the packet buffer data. */
-    uint8_t                     *pbPktBuf;
-    /** Number of bytes left for the checksum. */
-    size_t                      cbChksumRecvLeft;
-    /** Last target state seen. */
-    GDBSTUBTGTSTATE             enmTgtStateLast;
-    /** Number of registers this architecture has. */
-    uint32_t                    cRegs;
-    /** Overall size to return all registers. */
-    size_t                      cbRegs;
-    /** Register scratch space (for reading writing registers). */
-    void                        *pvRegsScratch;
-    /** Register index array for querying setting. */
-    uint32_t                    *paidxRegs;
-    /** Send packet checksum. */
-    uint8_t                     uChkSumSend;
-    /** Feature flags supported we negotiated with the remote end. */
-    uint32_t                    fFeatures;
-    /** Pointer to the XML target description. */
-    uint8_t                     *pbTgtXmlDesc;
-    /** Size of the XML target description. */
-    size_t                      cbTgtXmlDesc;
-    /** Flag whether the stub is in extended mode. */
-    bool                        fExtendedMode;
-    /** Output context. */
-    GDBSTUBOUTCTX               OutCtx;
-} GDBSTUBCTXINT;
-
-
-/** Indicate support for the 'qXfer:features:read' packet to support the target description. */
-#define GDBSTUBCTX_FEATURES_F_TGT_DESC      BIT(0)
-
-/**
- * Specific query packet processor callback.
- *
- * @returns Status code.
- * @param   pThis               The GDB stub context.
- * @param   pbArgs              Pointer to the arguments.
- * @param   cbArgs              Size of the arguments in bytes.
- */
-typedef int (FNGDBSTUBQPKTPROC) (PGDBSTUBCTXINT pThis, const uint8_t *pbArgs, size_t cbArgs);
-typedef FNGDBSTUBQPKTPROC *PFNGDBSTUBQPKTPROC;
-
-
-/**
- * 'q' packet processor.
- */
-typedef struct GDBSTUBQPKTPROC
-{
-    /** Name */
-    const char                  *pszName;
-    /** Length of name in characters (without \0 terminator). */
-    uint32_t                    cchName;
-    /** The callback to call for processing the particular query. */
-    PFNGDBSTUBQPKTPROC          pfnProc;
-} GDBSTUBQPKTPROC;
-/** Pointer to a 'q' packet processor entry. */
-typedef GDBSTUBQPKTPROC *PGDBSTUBQPKTPROC;
-/** Pointer to a const 'q' packet processor entry. */
-typedef const GDBSTUBQPKTPROC *PCGDBSTUBQPKTPROC;
-
-
-/**
- * 'v' packet processor.
- */
-typedef struct GDBSTUBVPKTPROC
-{
-    /** Name */
-    const char                  *pszName;
-    /** Length of name in characters (without \0 terminator). */
-    uint32_t                    cchName;
-    /** Replay to a query packet (ends with ?). */
-    const char                  *pszReplyQ;
-    /** Length of the query reply (without \0 terminator). */
-    uint32_t                    cchReplyQ;
-    /** The callback to call for processing the particular query. */
-    PFNGDBSTUBQPKTPROC          pfnProc;
-} GDBSTUBVPKTPROC;
-/** Pointer to a 'q' packet processor entry. */
-typedef GDBSTUBVPKTPROC *PGDBSTUBVPKTPROC;
-/** Pointer to a const 'q' packet processor entry. */
-typedef const GDBSTUBVPKTPROC *PCGDBSTUBVPKTPROC;
-
-
-/**
- * Feature callback.
- *
- * @returns Status code.
- * @param   pThis               The GDB stub context.
- * @param   pbVal               Pointer to the value.
- * @param   cbVal               Size of the value in bytes.  
- */
-typedef int (FNGDBSTUBFEATHND) (PGDBSTUBCTXINT pThis, const uint8_t *pbVal, size_t cbVal);
-typedef FNGDBSTUBFEATHND *PFNGDBSTUBFEATHND;
-
-
-/**
- * GDB feature descriptor.
- */
-typedef struct GDBSTUBFEATDESC
-{
-    /** Feature name */
-    const char                  *pszName;
-    /** Length of the feature name in characters (without \0 terminator). */
-    uint32_t                    cchName;
-    /** The callback to call for processing the particular feature. */
-    PFNGDBSTUBFEATHND           pfnHandler;
-    /** Flag whether the feature requires a value. */
-    bool                        fVal;
-} GDBSTUBFEATDESC;
-/** Pointer to a GDB feature descriptor. */
-typedef GDBSTUBFEATDESC *PGDBSTUBFEATDESC;
-/** Pointer to a const GDB feature descriptor. */
-typedef const GDBSTUBFEATDESC *PCGDBSTUBFEATDESC;
-
+#include "gdb.h"
 
 /**
  * GDB architecture names.
@@ -256,6 +54,16 @@ static const char *s_aGdbArchFeatMapping[] =
     "org.gnu.gdb.mips.cpu",  /* GDBSTUBTGTARCH_MIPS    */
 };
 
+static const char* s_aGdbRegTypeMapping[] = {
+    NULL,       /*GDBSTUBREGTYPE_INVALID */
+	NULL,       /*GDBSTUBREGTYPE_GP */
+	"code_ptr", /*GDBSTUBREGTYPE_PC */
+	"data_ptr", /*GDBSTUBREGTYPE_STACK_PTR  */
+	"code_ptr", /*GDBSTUBREGTYPE_CODE_PTR  */
+	NULL,       /*GDBSTUBREGTYPE_STATUS  */
+	"float"     /*GDBSTUBREGTYPE_FPR */
+};
+
 
 /**
  * Wrapper for allocating memory using the callback interface.
@@ -279,7 +87,7 @@ static inline void *gdbStubCtxIfMemAlloc(PGDBSTUBCTXINT pThis, size_t cbAlloc)
  */
 static inline void gdbStubCtxIfMemFree(PGDBSTUBCTXINT pThis, void *pv)
 {
-    return pThis->pIf->pfnMemFree(pThis, pThis->pvUser, pv);
+    pThis->pIf->pfnMemFree(pThis, pThis->pvUser, pv);
 }
 
 
@@ -1478,7 +1286,7 @@ static int gdbStubCtxPktProcessFeatXmlRegs(PGDBSTUBCTXINT pThis, const uint8_t *
 static const GDBSTUBFEATDESC g_aGdbFeatures[] =
 {
 #define GDBSTUBFEATDESC_INIT(a_Name, a_pfnHnd, a_fVal) { a_Name, sizeof(a_Name) - 1, a_pfnHnd, a_fVal }
-    GDBSTUBFEATDESC_INIT("xmlRegisters",   gdbStubCtxPktProcessFeatXmlRegs, true),
+    GDBSTUBFEATDESC_INIT("xmlRegisters",   gdbStubCtxPktProcessFeatXmlRegs, TRUE),
 #undef GDBSTUBFEATDESC_INIT
 };
 
@@ -1492,7 +1300,7 @@ static const GDBSTUBFEATDESC g_aGdbFeatures[] =
  * @param   pcbArg              Where to store the size of the argument in bytes on success (excluding the delimiter).
  * @param   pfTerminator        Whereto store the flag whether the packet terminator (#) was seen as a delimiter.
  */
-static int gdbStubCtxQueryPktQueryFeatureLen(const uint8_t *pbArgs, size_t cbArgs, size_t *pcbArg, bool *pfTerminator)
+static int gdbStubCtxQueryPktQueryFeatureLen(const uint8_t *pbArgs, size_t cbArgs, size_t *pcbArg, BOOLEAN *pfTerminator)
 {
     const uint8_t *pbArgCur = pbArgs;
 
@@ -1510,7 +1318,7 @@ static int gdbStubCtxQueryPktQueryFeatureLen(const uint8_t *pbArgs, size_t cbArg
         return GDBSTUB_ERR_PROTOCOL_VIOLATION;
 
     *pcbArg       = pbArgCur - pbArgs;
-    *pfTerminator = *pbArgCur == GDBSTUB_PKT_END ? true : false;
+    *pfTerminator = *pbArgCur == GDBSTUB_PKT_END ? TRUE : FALSE;
 
     return GDBSTUB_INF_SUCCESS;
 }
@@ -1558,7 +1366,7 @@ static int gdbStubCtxPktProcessQuerySupported(PGDBSTUBCTXINT pThis, const uint8_
     while (   cbArgs
            && rc == GDBSTUB_INF_SUCCESS)
     {
-        bool fTerminator = false;
+        BOOLEAN fTerminator = FALSE;
         size_t cbArg = 0;
         rc = gdbStubCtxQueryPktQueryFeatureLen(pbArgs, cbArgs, &cbArg, &fTerminator);
         if (rc == GDBSTUB_INF_SUCCESS)
@@ -1714,118 +1522,51 @@ static int gdbStubCtxPktProcessQueryXferParseAnnexOffLen(const uint8_t *pbArgs, 
  */
 static int gdbStubCtxTgtXmlDescCreate(PGDBSTUBCTXINT pThis)
 {
-    static const char s_szXmlTgtHdr[] =
-        "<?xml version=\"1.0\"?>\n"
-        "<!DOCTYPE target SYSTEM \"gdb-target.dtd\">\n"
-        "<target version=\"1.0\">\n";
-    static const char s_szXmlTgtFooter[] =
-        "</target>\n\0";
-
-    /** @todo Redo ASAP, this is crappy as hell. */
     int rc = GDBSTUB_INF_SUCCESS;
-    size_t cbXmlTgtDesc = sizeof(s_szXmlTgtHdr) + sizeof(s_szXmlTgtFooter);
-
-    /* Add length for architecture. */
-    cbXmlTgtDesc +=   (sizeof("<architecture>") - 1)
-                    + (sizeof("</architecture>\n") - 1)
-                    + gdbStubStrlen(s_aGdbArchMapping[pThis->pIf->enmArch]);
-
-    /* Add length for the <feature></feature>. */
-    cbXmlTgtDesc +=  (sizeof("<feature name=\"\">\n") - 1)
-                    + (sizeof("</feature>\n") - 1)
-                    + gdbStubStrlen(s_aGdbArchFeatMapping[pThis->pIf->enmArch]);
-
-    /* Add the length for each register. */
-    for (uint32_t i = 0; i < pThis->cRegs; i++)
-    {
-        PCGDBSTUBREG pReg = &pThis->pIf->paRegs[i];
-
-        size_t cchRegName = gdbStubStrlen(pReg->pszName);
-        cbXmlTgtDesc +=   (sizeof("<reg name=\"\" bitsize=\"\"/>\n") - 1)
-                        + cchRegName + 2; /* Up to two characters for bitsize for now. */
-
-        if (   pReg->enmType == GDBSTUBREGTYPE_PC
-            || pReg->enmType == GDBSTUBREGTYPE_STACK_PTR
-            || pReg->enmType == GDBSTUBREGTYPE_CODE_PTR)
-        {
-            size_t cchTypeName = pReg->enmType == GDBSTUBREGTYPE_STACK_PTR ? sizeof("data_ptr") - 1 : sizeof("code_ptr") - 1;
-            cbXmlTgtDesc += sizeof(" type=\"\"") + cchTypeName - 1;
-        }
-    }
-
-    pThis->pbTgtXmlDesc = (uint8_t *)gdbStubCtxIfMemAlloc(pThis, cbXmlTgtDesc);
-    if (pThis->pbTgtXmlDesc)
-    {
+    size_t totalLen = 0;
+    pThis->pbTgtXmlDesc = (uint8_t *)gdbStubCtxIfMemAlloc(pThis, 8192);
+	gdbStubCtxMemset(pThis->pbTgtXmlDesc, 0, 8192);
+    if (pThis->pbTgtXmlDesc) {
         uint8_t *pbXmlCur = pThis->pbTgtXmlDesc;
-        pThis->cbTgtXmlDesc = cbXmlTgtDesc;
+        int len = 0;
 
-        gdbStubCtxMemcpy(pbXmlCur, &s_szXmlTgtHdr[0], sizeof(s_szXmlTgtHdr) - 1);
-        pbXmlCur += sizeof(s_szXmlTgtHdr) - 1;
+        len = sprintf(pbXmlCur,
+            "<?xml version=\"1.0\"?>\n"
+            "<!DOCTYPE target SYSTEM \"gdb-target.dtd\">\n"
+            "<target version=\"1.0\">\n"
+        );
+        pbXmlCur += len;
+		totalLen += len;
 
-        gdbStubCtxMemcpy(pbXmlCur, "<architecture>", sizeof("<architecture>") - 1);
-        pbXmlCur += sizeof("<architecture>") - 1;
+		len = sprintf(pbXmlCur, "    <architecture>%s</architecture>\n", s_aGdbArchMapping[pThis->pIf->enmArch]);
+		pbXmlCur += len;
+		totalLen += len;
 
-        size_t cch = gdbStubStrlen(s_aGdbArchMapping[pThis->pIf->enmArch]);
-        gdbStubCtxMemcpy(pbXmlCur, s_aGdbArchMapping[pThis->pIf->enmArch], cch);
-        pbXmlCur += cch;
-
-        gdbStubCtxMemcpy(pbXmlCur, "</architecture>\n", sizeof("</architecture>\n") - 1);
-        pbXmlCur += sizeof("</architecture>\n") - 1;
-
-        gdbStubCtxMemcpy(pbXmlCur, "<feature name=\"", sizeof("<feature name=\"") - 1);
-        pbXmlCur += sizeof("<feature name=\"") - 1;
-
-        cch = gdbStubStrlen(s_aGdbArchFeatMapping[pThis->pIf->enmArch]);
-        gdbStubCtxMemcpy(pbXmlCur, s_aGdbArchFeatMapping[pThis->pIf->enmArch], cch);
-        pbXmlCur += cch;
-
-        gdbStubCtxMemcpy(pbXmlCur, "\">\n", sizeof("\">\n") - 1);
-        pbXmlCur += sizeof("\">\n") - 1;
+		len = sprintf(pbXmlCur, "    <feature name=\"%s\">\n", s_aGdbArchFeatMapping[pThis->pIf->enmArch]);
+		pbXmlCur += len;
+		totalLen += len;
 
         /* Register */
-        for (uint32_t i = 0; i < pThis->cRegs; i++)
-        {
+        for (uint32_t i = 0; i < pThis->cRegs; i++) {
             PCGDBSTUBREG pReg = &pThis->pIf->paRegs[i];
-            size_t cchRegName = gdbStubStrlen(pReg->pszName);
 
-            gdbStubCtxMemcpy(pbXmlCur, "<reg name=\"", sizeof("<reg name=\"") - 1);
-            pbXmlCur += sizeof("<reg name=\"") - 1;
-
-            gdbStubCtxMemcpy(pbXmlCur, pReg->pszName, cchRegName);
-            pbXmlCur += cchRegName;
-
-            gdbStubCtxMemcpy(pbXmlCur, "\" bitsize=\"", sizeof("\" bitsize=\"") - 1);
-            pbXmlCur += sizeof("\" bitsize=\"") - 1;
-
-            *pbXmlCur++ = '0' + (pReg->cRegBits / 10);
-            *pbXmlCur++ = '0' + (pReg->cRegBits % 10);
-
-            if (   pReg->enmType == GDBSTUBREGTYPE_PC
-                || pReg->enmType == GDBSTUBREGTYPE_STACK_PTR
-                || pReg->enmType == GDBSTUBREGTYPE_CODE_PTR)
-            {
-                size_t cchTypeName = pReg->enmType == GDBSTUBREGTYPE_STACK_PTR ? sizeof("data_ptr") - 1 : sizeof("code_ptr") - 1;
-                const char *pszTypeName = pReg->enmType == GDBSTUBREGTYPE_STACK_PTR ? "data_ptr" : "code_ptr";
-
-                gdbStubCtxMemcpy(pbXmlCur, "\" type=\"", sizeof("\" type=\"") - 1);
-                pbXmlCur += sizeof("\" type=\"") - 1;
-
-                gdbStubCtxMemcpy(pbXmlCur, pszTypeName, cchTypeName);
-                pbXmlCur += cchTypeName;
+            if (s_aGdbRegTypeMapping[pReg->enmType]) {
+				len = sprintf(pbXmlCur, "        <reg name=\"%s\" bitsize=\"%d\" type=\"%s\"/>\n", pReg->pszName, pReg->cRegBits, s_aGdbRegTypeMapping[pReg->enmType]);
+				pbXmlCur += len;
+				totalLen += len;
+            } else {
+				len = sprintf(pbXmlCur, "        <reg name=\"%s\" bitsize=\"%d\"/>\n", pReg->pszName, pReg->cRegBits);
+				pbXmlCur += len;
+				totalLen += len;
             }
+		}
 
-            gdbStubCtxMemcpy(pbXmlCur, "\"/>\n", sizeof("\"/>\n") - 1);
-            pbXmlCur += sizeof("\"/>\n") - 1;
-        }
+		len = sprintf(pbXmlCur, "    </feature>\n</target>");
+		pbXmlCur += len;
+		totalLen += len;
 
-        gdbStubCtxMemcpy(pbXmlCur, "</feature>\n", sizeof("</feature>\n") - 1);
-        pbXmlCur += sizeof("</feature>\n") - 1;
-
-        gdbStubCtxMemcpy(pbXmlCur, &s_szXmlTgtFooter[0], sizeof(s_szXmlTgtFooter) - 1);
-        pbXmlCur += sizeof(s_szXmlTgtFooter) - 1;
-    }
-    else
-        rc = GDBSTUB_ERR_NO_MEMORY;
+        pThis->cbTgtXmlDesc = totalLen;
+    } else rc = GDBSTUB_ERR_NO_MEMORY;
 
     return rc;
 }
@@ -2120,12 +1861,12 @@ static int gdbStubCtxPktProcessV(PGDBSTUBCTXINT pThis, const uint8_t *pbPktRem, 
     int rc = GDBSTUB_INF_SUCCESS;
 
     /* Determine the end of the identifier, delimiters are '?', ';' or end of packet. */
-    bool fQuery = false;
+    BOOLEAN fQuery = FALSE;
     const uint8_t *pbDelim = gdbStubCtxMemchr(pbPktRem, '?', cbPktRem);
     if (!pbDelim)
         pbDelim = gdbStubCtxMemchr(pbPktRem, ';', cbPktRem);
     else
-        fQuery = true;
+        fQuery = TRUE;
 
     size_t cchId = 0;
     if (pbDelim) /* Delimiter found, calculate length. */
@@ -2153,8 +1894,6 @@ static int gdbStubCtxPktProcessV(PGDBSTUBCTXINT pThis, const uint8_t *pbPktRem, 
     return gdbStubCtxReplySend(pThis, NULL, 0);
 }
 
-//#include <stdio.h>
-
 /**
  * Processes a completely received packet.
  *
@@ -2174,7 +1913,7 @@ static int gdbStubCtxPktProcess(PGDBSTUBCTXINT pThis)
             {
                 if (pThis->pIf->pfnTgtRestart)
                 {
-                    pThis->fExtendedMode = true;
+                    pThis->fExtendedMode = TRUE;
                     rc = gdbStubCtxReplySendOk(pThis);
                 }
                 else /* Send empty reply to indicate extended mode is unsupported. */
@@ -2677,6 +2416,14 @@ static int gdbStubCtxPktBufProcess(PGDBSTUBCTXINT pThis, size_t cbData)
     return rc;
 }
 
+static void gdbStubCtxLock(PGDBSTUBCTXINT pThis) {
+    pThis->pIf->pfnLock(pThis->pvUser);
+}
+
+static void gdbStubCtxUnlock(PGDBSTUBCTXINT pThis) {
+	pThis->pIf->pfnUnlock(pThis->pvUser);
+}
+
 
 /**
  * The main receive loop.
@@ -2695,8 +2442,9 @@ static int gdbStubCtxRecv(PGDBSTUBCTXINT pThis)
 
     pThis->enmTgtStateLast = enmTgtState;
 
-    while (rc == GDBSTUB_INF_SUCCESS)
+    while (rc == GDBSTUB_INF_SUCCESS && !pThis->doShutdown)
     {
+        gdbStubCtxLock(pThis);
         size_t cbRead = gdbStubCtxIoIfPeek(pThis);
 
         if (cbRead)
@@ -2718,8 +2466,12 @@ static int gdbStubCtxRecv(PGDBSTUBCTXINT pThis)
             else
                 rc = GDBSTUB_INF_TRY_AGAIN;
         }
+        gdbStubCtxUnlock(pThis);
     }
 
+    gdbStubCtxLock(pThis);
+    pThis->didShutdown = TRUE;
+	gdbStubCtxUnlock(pThis);
     return rc;
 }
 
@@ -2742,7 +2494,9 @@ int GDBStubCtxCreate(PGDBSTUBCTX phCtx, PCGDBSTUBIOIF pIoIf, PCGDBSTUBIF pIf, vo
         pThis->fFeatures       = GDBSTUBCTX_FEATURES_F_TGT_DESC;
         pThis->pbTgtXmlDesc    = NULL;
         pThis->cbTgtXmlDesc    = 0;
-        pThis->fExtendedMode   = false;
+        pThis->fExtendedMode   = FALSE;
+        pThis->doShutdown      = FALSE;
+        pThis->didShutdown     = FALSE;
         gdbStubOutCtxInit(&pThis->OutCtx, pThis);
 
         uint32_t cRegs = 0;
