@@ -78,6 +78,10 @@ private:
 	u32 symbolCount;
 };
 
+namespace GDB {
+	class PCSX2Interface;
+};
+
 class DisassemblyDialog : public wxFrame
 {
 public:
@@ -94,6 +98,7 @@ public:
 
 	wxDECLARE_EVENT_TABLE();
 protected:
+	friend class GDB::PCSX2Interface;
 	void onBreakRunClicked(wxCommandEvent& evt);
 	void onStepOverClicked(wxCommandEvent& evt);
 	void onStepIntoClicked(wxCommandEvent& evt);
@@ -102,8 +107,11 @@ protected:
 	void onDebuggerEvent(wxCommandEvent& evt);
 	void onPageChanging(wxCommandEvent& evt);
 	void onBreakpointClicked(wxCommandEvent& evt);
+	void onToggleGDB(wxCommandEvent& evt);
 	void onSizeEvent(wxSizeEvent& event);
 	void onClose(wxCloseEvent& evt);
+	void pauseExecution();
+	void resumeExecution();
 	void stepOver();
 	void stepInto();
 	void stepOut();
@@ -115,5 +123,6 @@ private:
 	wxNotebook* middleBook;
 
 	wxBoxSizer* topSizer;
-	wxButton *breakRunButton, *stepIntoButton, *stepOverButton, *stepOutButton, *breakpointButton, *helpButton;
+	wxButton *breakRunButton, *stepIntoButton, *stepOverButton, *stepOutButton, *breakpointButton, *gdbButton, *helpButton;
+	GDB::PCSX2Interface* gdbInterface;
 };

@@ -25,6 +25,7 @@
 #include "BreakpointWindow.h"
 #include "PathDefs.h"
 #include "wx/busyinfo.h"
+#include "DebugTools/gdb/PCSX2Interface.h"
 
 #ifdef _WIN32
 #include <Windows.h>
@@ -267,6 +268,10 @@ DisassemblyDialog::DisassemblyDialog(wxWindow* parent):
 	Bind(wxEVT_BUTTON, &DisassemblyDialog::onBreakpointClicked, this, breakpointButton->GetId());
 	topRowSizer->Add(breakpointButton);
 
+	gdbButton = new wxButton(panel, wxID_ANY, L"Enable GDB");
+	Bind(wxEVT_BUTTON, &DisassemblyDialog::onToggleGDB, this, gdbButton->GetId());
+	topRowSizer->Add(gdbButton);
+
 	helpButton = new wxButton( panel, wxID_ANY, L"Help");
 	Bind(wxEVT_BUTTON, &DisassemblyDialog::onHelpClicked, this, helpButton->GetId());
 	topRowSizer->Add(helpButton);
@@ -293,6 +298,9 @@ DisassemblyDialog::DisassemblyDialog(wxWindow* parent):
 		SetSize(width,height);
 
 	setDebugMode(true,true);
+
+	// Not sure when all the stuff allocated here gets deallocated, so I just won't explicitly deallocate this!
+	gdbInterface = new GDB::PCSX2Interface(this);
 }
 
 void DisassemblyDialog::onSizeEvent(wxSizeEvent& event)
@@ -308,16 +316,8 @@ void DisassemblyDialog::onSizeEvent(wxSizeEvent& event)
 
 void DisassemblyDialog::onBreakRunClicked(wxCommandEvent& evt)
 {	
-	if (r5900Debug.isCpuPaused())
-	{
-		// If the current PC is on a breakpoint, the user doesn't want to do nothing.
-		CBreakPoints::SetSkipFirst(BREAKPOINT_EE, r5900Debug.getPC());
-		CBreakPoints::SetSkipFirst(BREAKPOINT_IOP, r3000Debug.getPC());
-		r5900Debug.resumeCpu();
-	} else {
-		r5900Debug.pauseCpu();
-		gotoPc();
-	}
+	if (r5900Debug.isCpuPaused()) resumeExecution();
+	else pauseExecution();
 }
 
 void DisassemblyDialog::onStepOverClicked(wxCommandEvent& evt)
@@ -357,6 +357,20 @@ void DisassemblyDialog::onPageChanging(wxCommandEvent& evt)
 	{
 		currentCpu->getDisassembly()->SetFocus();
 		currentCpu->update();
+	}
+}
+
+void DisassemblyDialog::pauseExecution() {
+	if (!r5900Debug.isCpuPaused()) r5900Debug.pauseCpu();
+	gotoPc();
+}
+
+void DisassemblyDialog::resumeExecution() {
+	if (r5900Debug.isCpuPaused()) {
+		// If the current PC is on a breakpoint, the user doesn't want to do nothing.
+		CBreakPoints::SetSkipFirst(BREAKPOINT_EE, r5900Debug.getPC());
+		CBreakPoints::SetSkipFirst(BREAKPOINT_IOP, r3000Debug.getPC());
+		r5900Debug.resumeCpu();
 	}
 }
 
@@ -402,7 +416,6 @@ void DisassemblyDialog::stepOver()
 	CBreakPoints::AddBreakPoint(debug->getCpuType(), breakpointAddress,true);
 	r5900Debug.resumeCpu();
 }
-
 
 void DisassemblyDialog::stepInto()
 {
@@ -467,6 +480,16 @@ void DisassemblyDialog::onBreakpointClicked(wxCommandEvent& evt)
 	{
 		bpw.addBreakpoint();
 		update();
+	}
+}
+
+void DisassemblyDialog::onToggleGDB(wxCommandEvent& evt) {
+	if (gdbInterface->IsEnabled()) {
+		gdbInterface->Disable();
+		gdbButton->SetLabel("Enable GDB");
+	} else {
+		gdbInterface->Enable(6169); // todo: configurable port
+		gdbButton->SetLabel("Disable GDB");
 	}
 }
 

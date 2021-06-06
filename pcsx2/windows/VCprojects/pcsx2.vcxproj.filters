@@ -241,6 +241,9 @@
     <Filter Include="System\Ps2\PAD">
       <UniqueIdentifier>{e1cbcaf6-9f65-4f14-9e89-27dd0f10e047}</UniqueIdentifier>
     </Filter>
+    <Filter Include="System\Ps2\Debug\gdb">
+      <UniqueIdentifier>{d5dff8ce-a736-4a00-b312-d981a6b9ebf4}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <None Include="..\..\Utilities\folderdesc.txt">
@@ -1360,6 +1363,18 @@
     <ClCompile Include="..\..\Recording\Utilities\InputRecordingLogger.cpp">
       <Filter>Recording\Utilities</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\DebugTools\gdb\cpp_gdb.cpp">
+      <Filter>System\Ps2\Debug\gdb</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\DebugTools\gdb\gdb-stub.c">
+      <Filter>System\Ps2\Debug\gdb</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\DebugTools\gdb\WinSockInterface.cpp">
+      <Filter>System\Ps2\Debug\gdb</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\DebugTools\gdb\PCSX2Interface.cpp">
+      <Filter>System\Ps2\Debug\gdb</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\Patch.h">
@@ -2171,6 +2186,18 @@
     </ClInclude>
     <ClInclude Include="..\..\PAD\Windows\resource_pad.h">
       <Filter>System\Ps2\PAD</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\DebugTools\gdb\cpp_gdb.h">
+      <Filter>System\Ps2\Debug\gdb</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\DebugTools\gdb\libgdbstub.h">
+      <Filter>System\Ps2\Debug\gdb</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\DebugTools\gdb\WinSockInterface.h">
+      <Filter>System\Ps2\Debug\gdb</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\DebugTools\gdb\PCSX2Interface.h">
+      <Filter>System\Ps2\Debug\gdb</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
