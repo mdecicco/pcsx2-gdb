@@ -34,11 +34,12 @@
  */
 static const char *s_aGdbArchMapping[] =
 {
-    NULL,   /* GDBSTUBTGTARCH_INVALID */
-    "arm",  /* GDBSTUBTGTARCH_ARM     */
-    "i386", /* GDBSTUBTGTARCH_X86     */
-    "i386", /* GDBSTUBTGTARCH_AMD64   */
-    "mips", /* GDBSTUBTGTARCH_MIPS    */
+    NULL,        /* GDBSTUBTGTARCH_INVALID   */
+    "arm",       /* GDBSTUBTGTARCH_ARM       */
+    "i386",      /* GDBSTUBTGTARCH_X86       */
+    "i386",      /* GDBSTUBTGTARCH_AMD64     */
+    "mips",      /* GDBSTUBTGTARCH_MIPS      */
+    "mips:5900", /* GDBSTUBTGTARCH_MIPSR5900 */
 };
 
 
@@ -47,11 +48,12 @@ static const char *s_aGdbArchMapping[] =
  */
 static const char *s_aGdbArchFeatMapping[] =
 {
-    NULL,                    /* GDBSTUBTGTARCH_INVALID */
-    "org.gnu.gdb.arm.core",  /* GDBSTUBTGTARCH_ARM     */
-    "org.gnu.gdb.i386.core", /* GDBSTUBTGTARCH_X86     */
-    "org.gnu.gdb.arm.core",  /* GDBSTUBTGTARCH_AMD64   */
-    "org.gnu.gdb.mips.cpu",  /* GDBSTUBTGTARCH_MIPS    */
+    NULL,                    /* GDBSTUBTGTARCH_INVALID   */
+    "org.gnu.gdb.arm.core",  /* GDBSTUBTGTARCH_ARM       */
+    "org.gnu.gdb.i386.core", /* GDBSTUBTGTARCH_X86       */
+    "org.gnu.gdb.arm.core",  /* GDBSTUBTGTARCH_AMD64     */
+    "org.gnu.gdb.mips.cpu",  /* GDBSTUBTGTARCH_MIPS      */
+    "org.gnu.gdb.mips5900.cpu",  /* GDBSTUBTGTARCH_MIPSR5900 */
 };
 
 static const char* s_aGdbRegTypeMapping[] = {
@@ -2465,6 +2467,14 @@ static int gdbStubCtxRecv(PGDBSTUBCTXINT pThis)
                 rc = gdbStubCtxIoIfPoll(pThis);
             else
                 rc = GDBSTUB_INF_TRY_AGAIN;
+
+            if (pThis->enmTgtStateLast == GDBSTUBTGTSTATE_RUNNING) {
+                enmTgtState = gdbStubCtxIfTgtGetState(pThis);
+                if (enmTgtState == GDBSTUBTGTSTATE_STOPPED) {
+                    rc = gdbStubCtxReplySendSigTrap(pThis);
+                    pThis->enmTgtStateLast = enmTgtState;
+                }
+            }
         }
         gdbStubCtxUnlock(pThis);
     }

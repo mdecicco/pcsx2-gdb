@@ -11,10 +11,13 @@ namespace GDB {
             PCSX2Interface(DisassemblyDialog* dis);
 			~PCSX2Interface();
 
+			void Init();
 			void EnableInSeparateThread();
 
 			virtual int DebugPrint(const char* msg);
 			virtual void PacketReceived(const char* pkt);
+			virtual ProcessStatus Status();
+			virtual void GDB_Connected();
 			virtual Result StopExecution();
 			virtual Result RestartExecution();
 			virtual Result KillExecution();
@@ -29,8 +32,14 @@ namespace GDB {
 			virtual Result InvalidCommand(const char* cmd);
 
 		private:
+			struct reginfo {
+				int cat;
+				int num;
+				int bits;
+			};
 			DisassemblyDialog* m_disDialog;
-			std::unordered_map<RegisterID, std::pair<int, int>> m_regInfo; // RegisterID -> (category, number)
+			std::unordered_map<RegisterID, reginfo> m_regInfo;
 			std::thread m_gdbThread;
+			bool m_initialized;
     };
 }

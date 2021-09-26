@@ -24,9 +24,18 @@ namespace GDB {
 		if (gdb->IsEnabled()) gdb->Run();
 	}
 
-	PCSX2Interface::PCSX2Interface(DisassemblyDialog* dis) : WinSockInterface(Architecture::MIPS) {
+	PCSX2Interface::PCSX2Interface(DisassemblyDialog* dis) : WinSockInterface(Architecture::MIPSR5900) {
 		m_disDialog = dis;
+		m_initialized = false;
+	}
 
+	PCSX2Interface::~PCSX2Interface() {
+	}
+
+	void PCSX2Interface::Init() {
+		if (m_initialized) return;
+
+		/*
 		GDB::RegisterType alltypes[] = {
 			RegisterType::GeneralPurpose,
 			RegisterType::FloatingPoint,
@@ -52,6 +61,11 @@ namespace GDB {
 			int rc = r5900Debug.getRegisterCount(c);
 			int bits = r5900Debug.getRegisterSize(c);
 
+			// for some reason, GDB doesn't respect the actual register sizes and
+			// will actually reject the target description if they are described
+			// accurately
+			// if (bits == 128) bits = 32;
+
 			for (u8 r = 0; r < rc; r++) {
 				GDB::RegisterType tp = alltypes[ctypes[c]];
 				for (u8 s = 0;s < scount;s++) {
@@ -60,28 +74,84 @@ namespace GDB {
 						break;
 					}
 				}
+				
+				if (tp == RegisterType::GeneralPurpose && r == 33) {
+					// R59000 apparently doesn't have the sr register, bug GDB expects
+					// it to be right before the lo register
+
+					RegisterID id = DefineRegister("sr", 64, tp);
+					m_regInfo[id] = { -1, -1, 64 };
+				}
+
+				// hack to make GDB happy...
+				if (tp == RegisterType::GeneralPurpose) {
+					bits = 64;
+					if (r == 33 || r == 34) bits = 32; // 33 = lo, 34 = hi
+					else if (r == 32) {
+						// 32 = pc
+						// GDB expects the sequence to be: ..., ra, sr, lo, hi, bad, cause, pc
+						// pc must be defined later
+
+						// fuggit, I'll just do this manually...
+						continue;
+					}
+				} else if (tp == RegisterType::FloatingPoint) bits = 32;
 
 				RegisterID id = DefineRegister(r5900Debug.getRegisterName(categories[c], r), bits, tp);
-				m_regInfo[id] = std::pair<int, int>(categories[c], r);
+				m_regInfo[id] = { categories[c], r, bits };
 			}
 		}
-	}
+		*/
 
-	PCSX2Interface::~PCSX2Interface() {
+		for (u8 r = 0;r < 32;r++) {
+			RegisterID id = DefineRegister(r5900Debug.getRegisterName(EECAT_GPR, r), 64, RegisterType::GeneralPurpose);
+			m_regInfo[id] = { EECAT_GPR, r, 64 };
+		}
+
+		m_regInfo[DefineRegister("sr"   , 64, RegisterType::GeneralPurpose)] = { -1, -1, 64 };
+		m_regInfo[DefineRegister("lo"   , 64, RegisterType::GeneralPurpose)] = { EECAT_GPR, 34, 64 };
+		m_regInfo[DefineRegister("hi"   , 64, RegisterType::GeneralPurpose)] = { EECAT_GPR, 33, 64 };
+		m_regInfo[DefineRegister("bad"  , 64, RegisterType::GeneralPurpose)] = { -1, -1, 64 };
+		m_regInfo[DefineRegister("cause", 64, RegisterType::GeneralPurpose)] = { -1, -1, 64 };
+		m_regInfo[DefineRegister("pc"   , 64, RegisterType::GeneralPurpose)] = { EECAT_GPR, 32, 64 };
+
+		for (u8 r = 0;r < 32;r++) {
+			RegisterID id = DefineRegister(r5900Debug.getRegisterName(EECAT_FPR, r), 32, RegisterType::FloatingPoint);
+			m_regInfo[id] = { EECAT_FPR, r, 32 };
+		}
+
+		m_initialized = true;
 	}
 
 	void PCSX2Interface::EnableInSeparateThread() {
+		if (!m_initialized) Init();
 		if (m_gdbThread.joinable()) m_gdbThread.join();
 		m_gdbThread = std::thread(GDBThread, this);
 	}
 
 	int PCSX2Interface::DebugPrint(const char* msg) {
-		Console.WriteLn(msg);
+		Console.WriteLn("[GDB] %s", msg);
 		return strlen(msg);
 	}
 
 	void PCSX2Interface::PacketReceived(const char* pkt) {
-		DebugPrintf("Packet: %s", pkt);
+		DebugPrintf("Received: %s", pkt);
+	}
+
+	ProcessStatus PCSX2Interface::Status() {
+		if (r5900Debug.isCpuPaused()) return ProcessStatus::Stopped;
+		return ProcessStatus::Running;
+	}
+
+	void PCSX2Interface::GDB_Connected() {
+		DebugPrint("GDB client connected");
+		if (!r5900Debug.isAlive()) return;
+
+		m_disDialog->pauseExecution();
+
+		if (!r5900Debug.isCpuPaused()) {
+			DebugPrint("Failed to stop execution for GDB");
+		}
 	}
 
 	Result PCSX2Interface::StopExecution() {
@@ -105,13 +175,30 @@ namespace GDB {
 	}
 
 	Result PCSX2Interface::SingleStepExecution() {
+		u128 curPc = r5900Debug.getRegister(EECAT_GPR, 32);
 		m_disDialog->stepInto();
+		// wait for cpu to reach the next instruction
+		// todo: timeout after x seconds
+		while(true) {
+			if (!r5900Debug.isAlive() || curPc != r5900Debug.getRegister(EECAT_GPR, 32)) {
+				break;
+			}
+		}
 		return Result::Success;
 	}
 
 	Result PCSX2Interface::ContinueExecution() {
-		if (!r5900Debug.isAlive()) return Result::TryAgain;
+		if (!r5900Debug.isAlive()) return Result::InternalError;
 		m_disDialog->resumeExecution();
+
+		// wait for cpu resume
+		// todo: timeout after x seconds
+		while(true) {
+			if (!r5900Debug.isAlive() || !r5900Debug.isCpuPaused()) {
+				break;
+			}
+		}
+
 		if (r5900Debug.isCpuPaused()) return Result::InternalError;
 		return Result::Success;
 	}
@@ -137,22 +224,24 @@ namespace GDB {
 
 	Result PCSX2Interface::ReadRegister(RegisterID reg, void* dest) {
 		const auto& info = m_regInfo[reg];
-		const u8 bytes = RegisterBits(reg) / 8;
+		const u8 bytes = info.bits / 8;
 
-		const u128 val = r5900Debug.getRegister(info.first, info.second);
-		for (u8 b = 0;b < bytes;b++) ((u8*)dest)[b] = val._u8[b];
+		DebugPrintf("Fetching register %s (%d B)", RegisterName(reg), bytes);
+		const u128 val = r5900Debug.getRegister(info.cat, info.num);
+		for (u8 b = 0;b < bytes;b++) ((u8*)dest)[b] = val._u8[(bytes - 1) - b];
 
 		return Result::Success;
 	}
 
 	Result PCSX2Interface::WriteRegister(RegisterID reg, const void* src) {
 		const auto& info = m_regInfo[reg];
-		const u8 bytes = RegisterBits(reg) / 8;
+		const u8 bytes = info.bits / 8;
 
 		u128 val;
-		for (u8 b = 0;b < bytes;b++) val._u8[b] = ((u8*)src)[b];
+		val.lo = val.hi = 0;
+		for (u8 b = 0;b < bytes;b++) val._u8[(bytes - 1) - b] = ((u8*)src)[b];
 
-		r5900Debug.setRegister(info.first, info.second, val);
+		r5900Debug.setRegister(info.cat, info.num, val);
 		return Result::Success;
 	}
 

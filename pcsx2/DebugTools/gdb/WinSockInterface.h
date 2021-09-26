@@ -9,6 +9,7 @@ namespace GDB {
             ~WinSockInterface();
 
             virtual bool IO_Open(unsigned short port);
+			virtual void GDB_Connected();
             virtual void IO_Close();
             virtual size_t IO_Peek();
             virtual Result IO_Read(void* dest, size_t size, size_t* bytesRead);

@@ -115,7 +115,12 @@ namespace GDB {
             return false;
         }
         Unlock();
+
+        GDB_Connected();
         return true;
+    }
+
+    void WinSockInterface::GDB_Connected() {
     }
 
     void WinSockInterface::IO_Close() {
@@ -157,12 +162,21 @@ namespace GDB {
 
         if (*bytesRead == 0) {
             return Result::InternalError;
-        }
+		}
 
         return Result::Success;
     }
 
     Result WinSockInterface::IO_Write(const void* src, size_t size) {
+        static char pkt[4096];
+        if (size < 4096) {
+            memcpy(pkt, src, size);
+            pkt[size] = 0;
+			DebugPrintf("Sent: %s\n", &pkt[0]);
+        } else {
+		    DebugPrintf("Packet too large for debug log buffer: %llu\n", size);
+        }
+
         if (!m_server) {
             DebugPrint("Socket is not currently open.");
             return Result::InternalError;

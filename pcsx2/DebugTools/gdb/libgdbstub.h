@@ -72,9 +72,11 @@ typedef enum GDBSTUBTGTARCH
     /** x86 architecture. */
     GDBSTUBTGTARCH_X86,
     /** x86-64 (amd64) architecture. */
-    GDBSTUBTGTARCH_AMD64,
-    /** Mips architecture. */
-    GDBSTUBTGTARCH_MIPS,
+	GDBSTUBTGTARCH_AMD64,
+	/** Mips architecture. */
+	GDBSTUBTGTARCH_MIPS,
+	/** Mips R5900 architecture. */
+	GDBSTUBTGTARCH_MIPSR5900,
     /** 32bit hack. */
     GDBSTUBTGTARCH_32BIT_HACK = 0x7fffffff
 } GDBSTUBTGTARCH;

@@ -15,6 +15,16 @@ extern "C" {
 #define _regs ((GDBSTUBREG*)m_registers)
 #define _cmds ((GDBSTUBCMD*)m_customCommands)
 
+void SwapBytes(void* pv, size_t n) {
+	char* p = (char*)pv;
+	size_t lo, hi;
+	for (lo = 0, hi = n - 1; hi > lo; lo++, hi--) {
+		char tmp = p[lo];
+		p[lo] = p[hi];
+		p[hi] = tmp;
+	}
+}
+
 namespace GDB {
 
 
@@ -39,6 +49,7 @@ namespace GDB {
             case Architecture::X86: return GDBSTUBTGTARCH_X86;
             case Architecture::AMD64: return GDBSTUBTGTARCH_AMD64;
             case Architecture::MIPS: return GDBSTUBTGTARCH_MIPS;
+            case Architecture::MIPSR5900: return GDBSTUBTGTARCH_MIPSR5900;
         }
         return GDBSTUBTGTARCH_INVALID;
     }
@@ -182,6 +193,7 @@ namespace GDB {
         for (uint32_t r = 0; r < cRegs; r++) {
             int bytes = i->RegisterBits((Interface::RegisterID)paRegs[r]) / 8;
             Result result = i->ReadRegister((Interface::RegisterID)paRegs[r], (void*)dest);
+            SwapBytes(dest, bytes);
             if (result != Result::Success) return cmdStatus(result);
             dest += bytes;
         }
@@ -497,7 +509,7 @@ namespace GDB {
     }
 
     int Interface::DebugPrint(const char* str) {
-        return printf("%s\n", str);
+        return printf("[GDB] %s\n", str);
     }
 
     void* Interface::Allocate(size_t size) {
@@ -557,10 +569,11 @@ namespace GDB {
     }
 
     Result Interface::InvalidCommand(const char* cmd) {
+		DebugPrintf("Invalid command: %s", cmd);
         return Result::NotSupported;
     }
 
     void Interface::PacketReceived(const char* pkt) {
-        // DebugPrintf("Packet: %s", pkt);
+        DebugPrintf("Received: %s", pkt);
     }
 };

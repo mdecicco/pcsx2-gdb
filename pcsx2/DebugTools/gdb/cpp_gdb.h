@@ -25,7 +25,8 @@ namespace GDB {
         ARM,
         X86,
         AMD64,
-        MIPS
+        MIPS,
+        MIPSR5900
     };
 
     enum class TracepointType {
